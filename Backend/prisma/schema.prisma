@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Entidades base
+// ─────────────────────────────────────────────
+
+model Author {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  createdAt DateTime  @default(now())
+
+  tickets   Ticket[]
+  articles  Article[]
+  products  Product[]
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+
+  tickets  Ticket[]
+  articles Article[]
+  products Product[]
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+
+  author     Author   @relation(fields: [authorId], references: [id])
+  authorId   Int
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId Int
+
+  tickets Ticket[]
+}
+
+model Article {
+  id        Int      @id @default(autoincrement())
+  title     String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author     Author   @relation(fields: [authorId], references: [id])
+  authorId   Int
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId Int
+}
+
+// ─────────────────────────────────────────────
+// Chamados (núcleo do Help Desk)
+// ─────────────────────────────────────────────
+
+enum TicketStatus {
+  ABERTO
+  EM_ANDAMENTO
+  RESOLVIDO
+  FECHADO
+}
+
+model Ticket {
+  id          Int          @id @default(autoincrement())
+  title       String
+  description String       @db.Text
+  solution    String?      @db.Text
+  status      TicketStatus @default(ABERTO)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  author     Author   @relation(fields: [authorId], references: [id])
+  authorId   Int
+
+  category   Category @relation(fields: [categoryId], references: [id])
+  categoryId Int
+
+  product   Product? @relation(fields: [productId], references: [id])
+  productId Int?
+
+  terms TicketTerm[]
+}
+
+// ─────────────────────────────────────────────
+// Índice invertido para busca TF-IDF
+// ─────────────────────────────────────────────
+
+model Term {
+  id    Int    @id @default(autoincrement())
+  token String @unique
+
+  tickets TicketTerm[]
+}
+
+model TicketTerm {
+  ticketId Int
+  termId   Int
+  tf       Float   // frequência ponderada (título×3, solução×2, descrição×1)
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  term   Term   @relation(fields: [termId], references: [id])
+
+  @@id([ticketId, termId])
+}

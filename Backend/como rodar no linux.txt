@@ -1,0 +1,13 @@
+### Como rodar no Fedora
+
+```bash
+# Instalar pré-requisitos (apenas uma vez)
+sudo dnf install nodejs podman podman-compose
+
+# Clonar/abrir o projeto e rodar o setup
+cd Backend
+bash setup.sh
+
+# Depois, para iniciar o servidor
+npm run dev
+```
