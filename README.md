@@ -4,6 +4,8 @@ Sistema de Help Desk com motor de busca TF-IDF sobre chamados antigos.
 
 ## Stack
 
+O front-end **Circuito** está disponível em [`Front/`](Front/README.md). Para abrir a comunidade demonstrativa local, execute `cd Front` e `npm run dev`, depois acesse **http://localhost:5173**. Ele funciona sem instalar dependências e sem iniciar o banco de dados.
+
 - **Node.js ≥ 18** (Express 5, CommonJS)
 - **PostgreSQL 16** (via Podman)
 - **Prisma ORM 5**
