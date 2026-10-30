@@ -27,8 +27,8 @@ command -v podman  >/dev/null 2>&1 || error "Podman não encontrado. Instale: su
 
 NODE_VER=$(node -e "process.stdout.write(process.versions.node)")
 MAJOR=${NODE_VER%%.*}
-if [ "$MAJOR" -lt 18 ]; then
-  error "Node.js >= 18 é necessário (atual: $NODE_VER). Use: sudo dnf install nodejs"
+if [ "$MAJOR" -lt 22 ] || [ "$MAJOR" -gt 24 ]; then
+  error "Node.js 22 a 24 é necessário (atual: $NODE_VER)."
 fi
 
 if ! command -v podman-compose >/dev/null 2>&1; then
@@ -79,19 +79,23 @@ done
 # 5. Instalar dependências Node
 # ─────────────────────────────────────────────
 info "Instalando dependências npm..."
-npm install
+npm ci
 
 # ─────────────────────────────────────────────
 # 6. Migration Prisma
 # ─────────────────────────────────────────────
 info "Rodando migration do Prisma..."
-npx prisma migrate dev --name init
+npm run prisma:deploy
 
 # ─────────────────────────────────────────────
 # 7. Gerar Prisma Client
 # ─────────────────────────────────────────────
 info "Gerando Prisma Client..."
 npx prisma generate
+
+# 8. Massa de dados para a apresentação
+info "Populando dados e índice de busca..."
+npm run seed
 
 # ─────────────────────────────────────────────
 # Pronto!

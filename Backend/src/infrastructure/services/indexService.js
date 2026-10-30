@@ -2,44 +2,27 @@
 
 const { computeTicketTF } = require("./tokenizer");
 
-/**
- * Reindexa um chamado: apaga os postings antigos e recria dentro da mesma transação.
- *
- * @param {import("@prisma/client").PrismaClient} tx  - cliente Prisma (pode ser tx)
- * @param {{ id: number, title: string, description: string, solution?: string }} ticket
- */
-async function reindexTicket(tx, ticket) {
-  // 1. Remove postings antigos
-  await tx.ticketTerm.deleteMany({ where: { ticketId: ticket.id } });
-
-  const tf = computeTicketTF(ticket);
-  if (tf.size === 0) return;
-
-  // 2. Garante que cada token exista na tabela Term (upsert)
-  const tokens = [...tf.keys()];
-
-  for (const token of tokens) {
-    await tx.term.upsert({
-      where: { token },
-      update: {},
-      create: { token },
-    });
-  }
-
-  // 3. Busca os ids dos termos
+// O chamador mantém gravação e índice na mesma transação.
+async function reindexTickets(tx, tickets) {
+  if (!tickets.length) return;
+  await tx.ticketTerm.deleteMany({ where: { ticketId: { in: tickets.map((t) => t.id) } } });
+  const frequencies = tickets.map((ticket) => ({ id: ticket.id, tf: computeTicketTF(ticket) }));
+  const tokens = [...new Set(frequencies.flatMap(({ tf }) => [...tf.keys()]))];
+  if (!tokens.length) return;
+  await tx.term.createMany({ data: tokens.map((token) => ({ token })), skipDuplicates: true });
   const terms = await tx.term.findMany({
-    where: { token: { in: tokens } },
-    select: { id: true, token: true },
+    where: { token: { in: tokens } }, select: { id: true, token: true },
   });
-
-  // 4. Cria os postings
-  const postings = terms.map((term) => ({
-    ticketId: ticket.id,
-    termId: term.id,
-    tf: tf.get(term.token),
-  }));
-
-  await tx.ticketTerm.createMany({ data: postings });
+  const ids = new Map(terms.map((term) => [term.token, term.id]));
+  const postings = frequencies.flatMap(({ id, tf }) =>
+    [...tf].map(([token, value]) => ({ ticketId: id, termId: ids.get(token), tf: value })));
+  for (let offset = 0; offset < postings.length; offset += 1000) {
+    await tx.ticketTerm.createMany({ data: postings.slice(offset, offset + 1000) });
+  }
 }
 
-module.exports = { reindexTicket };
+async function reindexTicket(tx, ticket) {
+  await reindexTickets(tx, [ticket]);
+}
+
+module.exports = { reindexTicket, reindexTickets };
