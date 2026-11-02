@@ -92,6 +92,8 @@ model Ticket {
   productId Int?
 
   terms TicketTerm[]
+
+  @@index([categoryId, status, createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -114,4 +116,5 @@ model TicketTerm {
   term   Term   @relation(fields: [termId], references: [id])
 
   @@id([ticketId, termId])
+  @@index([termId])
 }

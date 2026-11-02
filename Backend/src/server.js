@@ -27,8 +27,10 @@ app.use("/tickets", ticketRoutes);
 // Middleware de erro (deve ser o último)
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  console.log(`HelpDesk Backend rodando em http://localhost:${config.port}`);
-});
+if (require.main === module) {
+  app.listen(config.port, () => {
+    console.log(`HelpDesk Backend rodando em http://localhost:${config.port}`);
+  });
+}
 
 module.exports = app;

@@ -1,8 +1,24 @@
-# Compatível com Docker Compose e podman-compose (Fedora)
-# Para subir: podman-compose up -d
-# Para parar: podman-compose down
+# Ambiente acadêmico local. Executar em Backend/: docker compose up --build -d
 
 services:
+  backend:
+    build: .
+    init: true
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://helpdesk:helpdesk@postgres:5432/helpdesk?schema=public
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+
   postgres:
     image: docker.io/postgres:16-alpine
     container_name: helpdesk_db
