@@ -5,31 +5,36 @@ require("dotenv").config();
 const express = require("express");
 const config = require("./config");
 
-const authorRoutes = require("./presentation/routes/authorRoutes");
+const memberRoutes = require("./presentation/routes/memberRoutes");
 const categoryRoutes = require("./presentation/routes/categoryRoutes");
-const productRoutes = require("./presentation/routes/productRoutes");
 const articleRoutes = require("./presentation/routes/articleRoutes");
-const ticketRoutes = require("./presentation/routes/ticketRoutes");
+const postRoutes = require("./presentation/routes/postRoutes");
+const voteRoutes = require("./presentation/routes/voteRoutes");
+const notificationRoutes = require("./presentation/routes/notificationRoutes");
+const postController = require("./presentation/controllers/postController");
 const errorHandler = require("./presentation/middlewares/errorHandler");
 
 const app = express();
 
-app.use(express.json());
+// O anexo de imagem (até 2 MB) trafega como data URL base64 no JSON.
+app.use(express.json({ limit: "3mb" }));
 
 // Rotas
 app.get("/health", (req, res) => res.json({ status: "ok" }));
-app.use("/authors", authorRoutes);
+app.get("/stats", postController.stats);
+app.use("/members", memberRoutes);
 app.use("/categories", categoryRoutes);
-app.use("/products", productRoutes);
 app.use("/articles", articleRoutes);
-app.use("/tickets", ticketRoutes);
+app.use("/posts", postRoutes);
+app.use("/votes", voteRoutes);
+app.use("/notifications", notificationRoutes);
 
 // Middleware de erro (deve ser o último)
 app.use(errorHandler);
 
 if (require.main === module) {
   app.listen(config.port, () => {
-    console.log(`HelpDesk Backend rodando em http://localhost:${config.port}`);
+    console.log(`Circuito Backend rodando em http://localhost:${config.port}`);
   });
 }
 

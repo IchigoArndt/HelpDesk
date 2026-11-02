@@ -37,7 +37,7 @@ export function registrationView({ icon, escape, user }) {
           <ol class="registration-progress" aria-label="Etapas do cadastro">
             <li id="registration-progress-1" aria-current="step"><span>01</span> Seu perfil</li><li class="registration-progress-line" aria-hidden="true"></li><li id="registration-progress-2"><span>02</span> Seus interesses</li>
           </ol>
-          <div class="registration-form-top"><span class="registration-step" id="registration-step-label">O PRIMEIRO PASSO É SE APRESENTAR</span><span class="registration-local">Demonstração</span></div>
+          <div class="registration-form-top"><span class="registration-step" id="registration-step-label">O PRIMEIRO PASSO É SE APRESENTAR</span><span class="registration-local">Sem senha</span></div>
           <h1 id="registration-title" tabindex="-1">Seu lugar é aqui<span>.</span></h1>
           <p class="registration-intro" id="registration-intro">Conte um pouco sobre você.<br>O próximo insight pode começar com o seu nome.</p>
           <form id="registration-form" novalidate>
@@ -71,7 +71,7 @@ export function registrationView({ icon, escape, user }) {
             </fieldset>
             <div class="registration-preference-tip">${icon('users')}<p>Do primeiro parafuso ao diagnóstico avançado, tem espaço para todo mundo.</p></div>
             </div>
-            <div class="registration-demo-note">${icon('box')}<p>Perfil de demonstração, salvo neste navegador.<br>Sem senha e sem envio de e-mails.</p></div>
+            <div class="registration-demo-note">${icon('box')}<p>Seu perfil é salvo na comunidade.<br>Sem senha e sem envio de e-mails: para voltar, entre com o mesmo e-mail.</p></div>
             <div class="registration-form-actions"><button id="registration-previous" type="button" hidden aria-label="Voltar para seus dados">${icon('arrow')}</button><button type="submit" class="registration-submit" id="registration-submit">Continuar ${icon('arrow')}</button></div>
             <div class="registration-bottom-line"><span id="registration-bottom-note">Dois passos. Um mundo de trocas.</span><button type="button" id="registration-skip" hidden>Decidir depois</button></div>
           </form>
@@ -149,7 +149,13 @@ export function bindRegistration(onSubmit) {
     if (window.matchMedia('(max-width: 650px)').matches) document.querySelector('.registration-form-panel').scrollIntoView({ block: 'start' });
   }
   previous.addEventListener('click', () => setStep(1));
-  skip.addEventListener('click', () => onSubmit({ name: name.value.trim(), email: email.value.trim(), level: '', interests: [] }));
+  let busy = false;
+  async function finish(data) {
+    if (busy) return;
+    busy = true; submit.disabled = skip.disabled = previous.disabled = true;
+    try { await onSubmit(data); } finally { busy = false; submit.disabled = skip.disabled = previous.disabled = false; }
+  }
+  skip.addEventListener('click', () => finish({ name: name.value.trim(), email: email.value.trim(), level: '', interests: [] }));
   updatePreview();
   form.addEventListener('submit', event => {
     event.preventDefault();
@@ -163,6 +169,6 @@ export function bindRegistration(onSubmit) {
     }
     if (step === 1) { setStep(2); return; }
     const data = new FormData(form);
-    onSubmit({ name: name.value.trim(), email: email.value, level: data.get('level'), interests: data.getAll('interests') });
+    finish({ name: name.value.trim(), email: email.value, level: data.get('level'), interests: data.getAll('interests') });
   });
 }

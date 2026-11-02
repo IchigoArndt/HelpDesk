@@ -2,20 +2,12 @@
 
 const prisma = require("../database/prismaClient");
 
-async function create({ name, description }) {
-  return prisma.category.create({ data: { name, description } });
-}
-
 async function findAll() {
-  return prisma.category.findMany({ orderBy: { name: "asc" } });
+  return prisma.category.findMany({ orderBy: { id: "asc" } });
 }
 
 async function findById(id) {
   return prisma.category.findUnique({ where: { id } });
 }
 
-async function findByName(name) {
-  return prisma.category.findUnique({ where: { name } });
-}
-
-module.exports = { create, findAll, findById, findByName };
+module.exports = { findAll, findById };

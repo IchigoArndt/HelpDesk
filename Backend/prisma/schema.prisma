@@ -8,92 +8,180 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────
-// Entidades base
+// Comunidade Circuito
 // ─────────────────────────────────────────────
 
-model Author {
-  id        Int       @id @default(autoincrement())
-  name      String
-  email     String    @unique
-  createdAt DateTime  @default(now())
+enum PostStatus {
+  OPEN
+  RESOLVED
+}
 
-  tickets   Ticket[]
-  articles  Article[]
-  products  Product[]
+model Member {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  level     String?
+  interests String[]
+  role      String   @default("Membro")
+  color     String   @default("mint")
+  createdAt DateTime @default(now())
+
+  sessions      Session[]
+  posts         Post[]
+  replies       Reply[]
+  postVotes     PostVote[]
+  replyVotes    ReplyVote[]
+  bookmarks     Bookmark[]
+  notifications Notification[]
+}
+
+// Sessão de demonstração: o token opaco só é guardado como hash SHA-256.
+model Session {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  memberId Int
+
+  @@index([memberId])
 }
 
 model Category {
-  id          Int       @id @default(autoincrement())
-  name        String    @unique
-  description String?
-  createdAt   DateTime  @default(now())
-
-  tickets  Ticket[]
-  articles Article[]
-  products Product[]
-}
-
-model Product {
   id          Int      @id @default(autoincrement())
-  name        String
-  description String   @db.Text
+  name        String   @unique
+  icon        String   @default("box")
+  description String?
   createdAt   DateTime @default(now())
 
-  author     Author   @relation(fields: [authorId], references: [id])
-  authorId   Int
-
-  category   Category @relation(fields: [categoryId], references: [id])
-  categoryId Int
-
-  tickets Ticket[]
+  posts Post[]
 }
 
 model Article {
   id        Int      @id @default(autoincrement())
-  title     String
+  title     String   @unique
+  label     String
+  icon      String   @default("book")
   body      String   @db.Text
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  author     Author   @relation(fields: [authorId], references: [id])
-  authorId   Int
-
-  category   Category @relation(fields: [categoryId], references: [id])
-  categoryId Int
 }
 
-// ─────────────────────────────────────────────
-// Chamados (núcleo do Help Desk)
-// ─────────────────────────────────────────────
-
-enum TicketStatus {
-  ABERTO
-  EM_ANDAMENTO
-  RESOLVIDO
-  FECHADO
-}
-
-model Ticket {
-  id          Int          @id @default(autoincrement())
+model Post {
+  id          Int        @id @default(autoincrement())
   title       String
-  description String       @db.Text
-  solution    String?      @db.Text
-  status      TicketStatus @default(ABERTO)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  description String     @db.Text
+  image       String?    @db.Text
+  status      PostStatus @default(OPEN)
+  score       Int        @default(0)
+  views       Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  author     Author   @relation(fields: [authorId], references: [id])
-  authorId   Int
+  author   Member @relation(fields: [authorId], references: [id])
+  authorId Int
 
   category   Category @relation(fields: [categoryId], references: [id])
   categoryId Int
 
-  product   Product? @relation(fields: [productId], references: [id])
-  productId Int?
-
-  terms TicketTerm[]
+  tags          PostTag[]
+  replies       Reply[]
+  votes         PostVote[]
+  bookmarks     Bookmark[]
+  terms         PostTerm[]
+  notifications Notification[]
 
   @@index([categoryId, status, createdAt])
+  @@index([authorId])
+  @@index([score])
+}
+
+model Reply {
+  id        Int      @id @default(autoincrement())
+  body      String   @db.Text
+  accepted  Boolean  @default(false)
+  score     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  author   Member @relation(fields: [authorId], references: [id])
+  authorId Int
+
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId Int
+
+  votes ReplyVote[]
+
+  @@index([postId, createdAt])
+  @@index([authorId])
+}
+
+model Tag {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  posts PostTag[]
+}
+
+model PostTag {
+  postId Int
+  tagId  Int
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id])
+
+  @@id([postId, tagId])
+  @@index([tagId])
+}
+
+// value: +1 ou -1; repetir a mesma direção remove o voto.
+model PostVote {
+  memberId Int
+  postId   Int
+  value    Int
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, postId])
+  @@index([postId])
+}
+
+model ReplyVote {
+  memberId Int
+  replyId  Int
+  value    Int
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  reply  Reply  @relation(fields: [replyId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, replyId])
+  @@index([replyId])
+}
+
+model Bookmark {
+  memberId  Int
+  postId    Int
+  createdAt DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, postId])
+  @@index([postId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  memberId Int
+
+  post   Post? @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId Int?
+
+  @@index([memberId, read, createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -104,17 +192,17 @@ model Term {
   id    Int    @id @default(autoincrement())
   token String @unique
 
-  tickets TicketTerm[]
+  posts PostTerm[]
 }
 
-model TicketTerm {
-  ticketId Int
-  termId   Int
-  tf       Float   // frequência ponderada (título×3, solução×2, descrição×1)
+model PostTerm {
+  postId Int
+  termId Int
+  tf     Float // título×3, tags×2, solução aceita×2, descrição×1
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  term   Term   @relation(fields: [termId], references: [id])
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  term Term @relation(fields: [termId], references: [id])
 
-  @@id([ticketId, termId])
+  @@id([postId, termId])
   @@index([termId])
 }

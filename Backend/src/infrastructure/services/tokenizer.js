@@ -63,17 +63,13 @@ function countFrequency(tokens) {
 }
 
 /**
- * Calcula o TF ponderado de um chamado.
- * Pesos: título × 3, solução × 2, descrição × 1
+ * Calcula o TF ponderado de uma publicação.
+ * Pesos: título × 3, tags × 2, solução aceita × 2, descrição × 1
  *
- * @param {{ title: string, description: string, solution?: string }} ticket
+ * @param {{ title: string, description: string, solution?: string|null, tags?: string[] }} post
  * @returns {Map<string, number>} token → tf ponderado
  */
-function computeTicketTF(ticket) {
-  const titleTokens = tokenize(ticket.title || "");
-  const descTokens = tokenize(ticket.description || "");
-  const solTokens = tokenize(ticket.solution || "");
-
+function computePostTF(post) {
   const tf = new Map();
 
   const add = (tokens, weight) => {
@@ -82,11 +78,12 @@ function computeTicketTF(ticket) {
     }
   };
 
-  add(titleTokens, 3);
-  add(descTokens, 1);
-  add(solTokens, 2);
+  add(tokenize(post.title || ""), 3);
+  add(tokenize((post.tags || []).join(" ")), 2);
+  add(tokenize(post.solution || ""), 2);
+  add(tokenize(post.description || ""), 1);
 
   return tf;
 }
 
-module.exports = { tokenize, countFrequency, computeTicketTF };
+module.exports = { tokenize, countFrequency, computePostTF };
