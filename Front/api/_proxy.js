@@ -1,4 +1,4 @@
-// Proxy serverless do Vercel: /api/* → API_URL no Railway (mesmo contrato do server.js local).
+// Proxy serverless do Vercel: /api/* → API_URL no Railway (via rewrite em vercel.json).
 const API_URL = (process.env.API_URL || '').replace(/\/$/, '');
 const API_ROUTE = /^(health|stats|members(\/(me|login|logout|\d+))?|categories(\/\d+)?|articles(\/\d+)?|posts(\/(search|\d+(\/(replies|accept|bookmark))?))?|votes|notifications(\/read)?)$/;
 const API_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE']);
@@ -10,8 +10,8 @@ export const config = {
 };
 
 function endpointFromQuery(path) {
-  if (Array.isArray(path)) return path.join('/');
-  if (typeof path === 'string' && path) return path;
+  if (Array.isArray(path)) return path.filter(Boolean).join('/');
+  if (typeof path === 'string' && path) return path.replace(/^\/+|\/+$/g, '');
   return '';
 }
 
@@ -29,7 +29,7 @@ export default async function handler(req, res) {
 
   const endpoint = endpointFromQuery(req.query.path);
   if (!API_ROUTE.test(endpoint)) {
-    res.status(404).end();
+    res.status(404).json({ error: 'Rota não encontrada.' });
     return;
   }
   if (!API_METHODS.has(req.method)) {
@@ -65,11 +65,7 @@ export default async function handler(req, res) {
       return;
     }
     res.status(response.status).send(await response.text());
-  } catch (error) {
-    if (error?.code === 'TOO_LARGE') {
-      res.status(413).json({ error: 'Conteúdo grande demais. A imagem deve ter até 2 MB.' });
-      return;
-    }
+  } catch {
     res.status(502).json({ error: 'Não foi possível acessar o recurso solicitado.' });
   }
 }
