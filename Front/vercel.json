@@ -1,15 +1,15 @@
 {
   "version": 2,
   "functions": {
-    "api/_proxy.js": {
+    "api/proxy.js": {
       "memory": 256,
       "maxDuration": 15
     }
   },
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "/api/_proxy?path=:path*"
+      "source": "/api/((?!proxy$).*)",
+      "destination": "/api/proxy?path=$1"
     }
   ]
 }

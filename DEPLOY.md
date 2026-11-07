@@ -1,6 +1,6 @@
 # Publicar Circuito (Railway + Vercel)
 
-API + PostgreSQL no **Railway**; interface no **Vercel**. O navegador fala com o Vercel em `/api/...`; o `vercel.json` reescreve essas rotas para `Front/api/_proxy.js`, que encaminha para a API no Railway (sem Next.js o Vercel não aceita catch-all `[...path]`).
+API + PostgreSQL no **Railway**; interface no **Vercel**. O navegador fala com o Vercel em `/api/...`; o `vercel.json` reescreve essas rotas para `Front/api/proxy.js`, que encaminha para a API no Railway (sem Next.js o Vercel não aceita catch-all `[...path]`; arquivos com prefixo `_` também são ignorados).
 
 ```text
 Você  →  Vercel (front)  →  Railway (API)  →  Postgres
@@ -169,4 +169,4 @@ npm run dev
 - Interface: http://localhost:5173  
 - API: http://localhost:3000/health  
 
-Localmente o proxy é o `server.js`. No Vercel, o proxy é `Front/api/_proxy.js` (via rewrite).
+Localmente o proxy é o `server.js`. No Vercel, o proxy é `Front/api/proxy.js` (via rewrite).

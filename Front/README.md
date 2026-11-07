@@ -51,7 +51,7 @@ O estado compartilhado é centralizado em `app.js`. Componentes como `postCard`,
 
 O `server.js` encaminha para `http://localhost:3000` apenas rotas conhecidas (`health`, `stats`, `members`, `categories`, `articles`, `posts`, `votes`, `notifications`) e os métodos `GET`, `POST`, `PATCH` e `DELETE`, repassando o cabeçalho `Authorization` e limitando o corpo a 3,5 MB. Assim o front chama `/api/...` no mesmo domínio, sem liberar CORS no backend. A variável `API_URL` altera o destino e `PORT` altera a porta do front-end.
 
-No Vercel, o `vercel.json` reescreve `/api/...` para `api/_proxy.js`, que encaminha para a `API_URL` da API no Railway. Passos em [DEPLOY.md](../DEPLOY.md).
+No Vercel, o `vercel.json` reescreve `/api/...` para `api/proxy.js`, que encaminha para a `API_URL` da API no Railway. Passos em [DEPLOY.md](../DEPLOY.md).
 
 A sessão é um token opaco devolvido no cadastro/login e guardado em `localStorage` (`circuito-session`), junto do perfil. Se a API responder 401, o token é descartado e o usuário é avisado. Dados da versão demonstrativa antiga (`circuito-v1`) são removidos automaticamente.
 
