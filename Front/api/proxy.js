@@ -1,9 +1,12 @@
 // Proxy serverless do Vercel: /api/* → API_URL no Railway (via rewrite em vercel.json).
 function normalizeApiUrl(raw) {
-  return String(raw || '')
+  let value = String(raw || '')
     .trim()
     .replace(/^["']|["']$/g, '')
     .replace(/\/$/, '');
+  // Aceita host sem protocolo (ex.: xxx.up.railway.app).
+  if (value && !/^https?:\/\//i.test(value)) value = `https://${value}`;
+  return value;
 }
 
 const API_URL = normalizeApiUrl(process.env.API_URL);
