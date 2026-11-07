@@ -12,9 +12,12 @@ const postRoutes = require("./presentation/routes/postRoutes");
 const voteRoutes = require("./presentation/routes/voteRoutes");
 const notificationRoutes = require("./presentation/routes/notificationRoutes");
 const postController = require("./presentation/controllers/postController");
+const cors = require("./presentation/middlewares/cors");
 const errorHandler = require("./presentation/middlewares/errorHandler");
 
 const app = express();
+
+app.use(cors(config.allowedOrigins));
 
 // O anexo de imagem (até 2 MB) trafega como data URL base64 no JSON.
 app.use(express.json({ limit: "3mb" }));

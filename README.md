@@ -4,6 +4,8 @@ MVP de Banco de Dados II com PostgreSQL, Node.js 22 e Prisma ORM. A trilha escol
 
 O backend (`Backend/`) é a API Node.js + Prisma; o front-end **Circuito** (`Front/`) consome essa API pelo proxy `/api`. Os dois sobem juntos (veja abaixo).
 
+Para publicar (API + Postgres no Railway, front no Vercel), veja [DEPLOY.md](DEPLOY.md).
+
 ## Executar tudo
 
 Requer Docker (ou Podman com `docker` emulado) para o backend e Node.js 18+ para o front-end.
