@@ -1,5 +1,12 @@
 // Proxy serverless do Vercel: /api/* → API_URL no Railway (via rewrite em vercel.json).
-const API_URL = (process.env.API_URL || '').replace(/\/$/, '');
+function normalizeApiUrl(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\/$/, '');
+}
+
+const API_URL = normalizeApiUrl(process.env.API_URL);
 const API_ROUTE = /^(health|stats|members(\/(me|login|logout|\d+))?|categories(\/\d+)?|articles(\/\d+)?|posts(\/(search|\d+(\/(replies|accept|bookmark))?))?|votes|notifications(\/read)?)$/;
 const API_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE']);
 
@@ -21,15 +28,26 @@ function searchWithoutPath(reqUrl) {
   return url.search;
 }
 
+function apiHost() {
+  try { return new URL(API_URL).host; } catch { return null; }
+}
+
 export default async function handler(req, res) {
   if (!API_URL) {
     res.status(502).json({ error: 'API_URL não configurada no Vercel.' });
     return;
   }
+  if (!/^https?:\/\//i.test(API_URL)) {
+    res.status(502).json({
+      error: 'API_URL inválida no Vercel.',
+      detail: 'Use a URL completa do Railway, ex.: https://seu-servico.up.railway.app'
+    });
+    return;
+  }
 
   const endpoint = endpointFromQuery(req.query.path);
   if (!API_ROUTE.test(endpoint)) {
-    res.status(404).json({ error: 'Rota não encontrada.' });
+    res.status(404).json({ error: 'Rota não encontrada.', path: endpoint || null });
     return;
   }
   if (!API_METHODS.has(req.method)) {
@@ -51,12 +69,13 @@ export default async function handler(req, res) {
     }
   }
 
+  const target = `${API_URL}/${endpoint}${searchWithoutPath(req.url)}`;
   try {
-    const response = await fetch(`${API_URL}/${endpoint}${searchWithoutPath(req.url)}`, {
+    const response = await fetch(target, {
       method: req.method,
       headers,
       body,
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(25000)
     });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
@@ -65,7 +84,13 @@ export default async function handler(req, res) {
       return;
     }
     res.status(response.status).send(await response.text());
-  } catch {
-    res.status(502).json({ error: 'Não foi possível acessar o recurso solicitado.' });
+  } catch (error) {
+    const code = error?.cause?.code || error?.code || error?.name || 'fetch_failed';
+    const message = error?.message || 'erro desconhecido';
+    res.status(502).json({
+      error: 'Não foi possível acessar a API no Railway.',
+      detail: `${code}: ${message}`,
+      apiHost: apiHost()
+    });
   }
 }
