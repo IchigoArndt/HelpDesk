@@ -73,3 +73,30 @@ Registro histórico: estes números referem-se ao modelo de chamados, substituí
 - O schema de integração foi removido ao término; os 5000 chamados da demonstração foram preservados.
 
 O detalhamento reproduzível está em [VALIDACAO.md](VALIDACAO.md). O envio usa a branch existente `FAR_NovosAjustes`; não houve alteração da main nem reescrita do histórico.
+
+---
+
+### Etapa de 27/11/2026 (melhorias de consultas, correções de fluxo e documentação da evolução)
+
+Ferramenta: assistente de código Antigravity (sessão de 27/11/2026).
+
+#### Pedido recebido
+
+- Repasse das orientações do professor após a avaliação da entrega anterior: realizar um levantamento do que podia ser melhorado ou corrigido no projeto, implementar as melhorias/correções, documentar os prompts e criar/incrementar documentação explicando o porquê e sob quais circunstâncias cada mudança foi feita, além de estruturar commits claros por feature/fix para a próxima entrega em 07/12/2026.
+
+#### Intervenções realizadas
+
+- **Consultas e índices no PostgreSQL (`Backend`):**
+  - Adicionados índices compostos em `Post` (`[createdAt(sort: Desc), id(sort: Desc)]`, `[status, createdAt(sort: Desc), id(sort: Desc)]`, `[score(sort: Desc), createdAt(sort: Desc), id(sort: Desc)]`) no `schema.prisma` e versionados na migração `20261127000000_query_performance_indexes`.
+  - Reescrito `postRepository.search()` para agregar `df`, `idf` e `SUM(tf * idf)` diretamente no PostgreSQL via `$queryRaw` (CTE `matched_terms` + `ORDER BY ... LIMIT`), evitando trafegar milhares de linhas de `PostTerm` e IDs para o Node.js.
+  - Otimizado `memberRepository.findAll()` para passar apenas os IDs dos membros reais para `statsFor(memberIds)`, evitando agregar os 5.000+ posts dos membros de volume.
+  - Adicionado suporte ao filtro `category` por nome em `GET /posts` e ao cabeçalho `X-Total-Count` (exposto no CORS e repassado por `Front/server.js` e `Front/api/proxy.js`).
+- **Correções de busca, paginação e fluxo no front-end (`Front`):**
+  - Corrigido o bug em `Front/src/app.js` que descartava os objetos retornados por `/posts/search` (impedindo a exibição de publicações antigas fora do lote inicial); adicionada `mergePosts()` em `Front/src/data.js` preservando o ranking TF-IDF.
+  - Integrados paginação (`limit=20` + "Carregar mais"), filtros de categoria/status, ordenação e abas `Minhas publicações` / `Itens salvos` diretamente à API `/posts`.
+  - Corrigida a abertura de detalhes (`detail(id)`) para buscar `GET /posts/:id` quando o post (por exemplo, vindo de uma notificação antiga) não está em memória.
+  - Adicionados o modal "Editar perfil" integrado à rota `PATCH /members/me`, o carregamento de publicações do perfil via `authorId` e a pré-seleção da categoria filtrada ao abrir "Nova publicação".
+- **Documentação e testes:**
+  - Criado [EVOLUCAO.md](EVOLUCAO.md) detalhando o porquê e as circunstâncias de cada melhoria/correção, além de orientações para o fluxo em Git da dupla até 07/12.
+  - Atualizados [README.md](README.md) e [VALIDACAO.md](VALIDACAO.md), e adicionados testes em `Front/tests/domain.test.js` e `Backend/tests/integration/postgres.test.js`.
+  - Nesta máquina (sem permissão no socket Docker para o usuário local e sem PostgreSQL local), foram validados os testes unitários do Backend, os testes de domínio e checagem de sintaxe do Front e a checagem de sintaxe dos arquivos modificados do Backend; a execução contra PostgreSQL real (`test:integration` e `prisma migrate deploy`) fica pendente para o ambiente com Docker/Postgres ativo.

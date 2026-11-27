@@ -20,8 +20,8 @@ Sem o backend, a interface mostra um aviso de erro com o botão "Tentar novament
 
 ## O que já funciona
 
-- Feed carregado da API, com busca sem distinção de acentos, filtros combinados por categoria/status e ordenação por data ou votos. A busca de 3 ou mais caracteres também consulta `/posts/search` (TF-IDF) e inclui publicações cuja **solução aceita** contém os termos.
-- Cadastro dedicado em `/#register`, em duas etapas (identidade e interesses opcionais), com validação por campo e prévia do perfil. Cria o membro na API (`POST /members`). O login pelo modal usa só o e-mail (`POST /members/login`). **Não há senha.**
+- Feed paginado carregado da API (20 publicações por página com botão "Carregar mais" e contagem total via `X-Total-Count`), busca sem distinção de acentos, filtros combinados por categoria/status e ordenação por data ou votos consultados direto no banco. A busca de 3 ou mais caracteres também consulta `/posts/search` (TF-IDF) em toda a base e incorpora os resultados na listagem em ordem de relevância (inclusive publicações antigas e cuja **solução aceita** contém os termos).
+- Cadastro dedicado em `/#register`, em duas etapas (identidade e interesses opcionais), com validação por campo e prévia do perfil. Cria o membro na API (`POST /members`) e permite editar nome, nível e interesses depois (`PATCH /members/me`). O login pelo modal usa só o e-mail (`POST /members/login`). **Não há senha.**
 - Publicações com categoria, tags, texto com **negrito** e código inline, imagem com preview (até 2 MB), enviadas à API.
 - Detalhes, respostas, votos reversíveis positivos/negativos e solução aceita pelo autor da publicação, todos persistidos. O voto é otimista e volta ao estado anterior se a API recusar (por exemplo, voto no próprio conteúdo).
 - Itens salvos por membro (exigem entrar), perfis públicos com reputação calculada pela API, página de membros e base de conhecimento carregadas do backend.
@@ -57,6 +57,6 @@ A sessão é um token opaco devolvido no cadastro/login e guardado em `localStor
 
 ## Limites desta versão
 
-O acesso só exige nome e e-mail: não é autenticação forte, não há envio de e-mails, redefinição de senha nem tempo real. O feed carrega as 100 publicações mais recentes (os totais do painel vêm de `/stats`); a paginação completa e os anexos em armazenamento de arquivos ficam para uma próxima etapa. As imagens trafegam como data URL no JSON.
+O acesso só exige nome e e-mail: não é autenticação forte, não há envio de e-mails, redefinição de senha nem tempo real. Os anexos de imagem trafegam como data URL no JSON (até 2 MB) em vez de armazenamento de objetos dedicado.
 
 As fontes DM Sans e Manrope são carregadas do Google Fonts; sem acesso à internet, a interface usa a fonte sans-serif do sistema.

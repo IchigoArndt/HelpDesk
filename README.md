@@ -6,6 +6,8 @@ O backend (`Backend/`) é a API Node.js + Prisma; o front-end **Circuito** (`Fro
 
 Para publicar (API + Postgres no Railway, front no Vercel), veja [DEPLOY.md](DEPLOY.md).
 
+O histórico de melhorias e correções da Fase 2 (motivos, circunstâncias e impacto nas consultas e na interface) está documentado em [EVOLUCAO.md](EVOLUCAO.md).
+
 ## Executar tudo
 
 Requer Docker (ou Podman com `docker` emulado) para o backend e Node.js 18+ para o front-end.
@@ -131,7 +133,7 @@ O cadastro pede nome e e-mail e devolve um token de sessão; o login aceita apen
 
 ## Busca e demonstração
 
-O índice invertido usa TF-IDF: título tem peso 3, tags peso 2, **texto da solução aceita** peso 2 e descrição peso 1. A consulta normaliza caixa e acentos, remove stopwords e ordena por relevância, data e ID. O ranking é calculado no Node.js; não se promete escala ilimitada. Aceitar ou desmarcar uma solução reindexa a publicação, então a busca passa a (ou deixa de) encontrá-la pelas palavras da resposta.
+O índice invertido usa TF-IDF: título tem peso 3, tags peso 2, **texto da solução aceita** peso 2 e descrição peso 1. A consulta normaliza caixa e acentos, remove stopwords e calcula `tf × idf` e a ordenação por relevância, data e ID diretamente no PostgreSQL via CTE parametrizada, hidratando apenas os `limit` resultados selecionados. Aceitar ou desmarcar uma solução reindexa a publicação, então a busca passa a (ou deixa de) encontrá-la pelas palavras da resposta.
 
 `npm run demo` (ou o comando Docker equivalente) exibe contagens persistidas, as relações de uma publicação, comprova o rollback e executa quatro buscas, mostrando o tempo da primeira execução e a mediana de cinco repetições. Os tempos dependem do ambiente e são calculados a cada execução.
 
@@ -151,7 +153,7 @@ Rotas marcadas com **sessão** exigem `Authorization: Bearer <token>`; as demais
 | GET | `/members`, `/members/:id` | Membros com estatísticas e reputação (sem e-mail) |
 | GET | `/categories`, `/categories/:id` | Categorias |
 | GET | `/articles`, `/articles/:id` | Guias da base de conhecimento |
-| GET | `/posts` | Filtros `status` (`open`, `resolved`, `unanswered`), `categoryId`, `authorId`, `saved=me` (sessão), `sort` (`recent`, `popular`), `limit` até 100, `offset` |
+| GET | `/posts` | Filtros `status` (`open`, `resolved`, `unanswered`), `category` (nome) ou `categoryId`, `authorId`, `saved=me` (sessão), `sort` (`recent`, `popular`), `limit` até 100, `offset`; devolve cabeçalho `X-Total-Count` |
 | GET | `/posts/search` | `q` e `limit` opcional entre 1 e 100; ranking TF-IDF |
 | POST | `/posts` | **sessão**; `title` (10–160), `description` (20–10000), `category` (nome) ou `categoryId`, `tags` (até 4), `image` (data URL até 2 MB) |
 | GET | `/posts/:id` | Detalhes com respostas; incrementa visualizações |
@@ -188,4 +190,4 @@ O front-end Circuito está em [Front/](Front/README.md). Ele carrega publicaçõ
 
 [IA_LOG.md](IA_LOG.md) documenta os pedidos desta conversa, intervenções e resultados reais de validação. Prompts de sessões anteriores só devem ser adicionados a partir dos registros reais da dupla. O Git deve refletir a participação efetiva de ambos, sem autoria ou commits inventados.
 
-Os resultados reais da última execução estão em [VALIDACAO.md](VALIDACAO.md).
+As melhorias pós-entrega e suas circunstâncias estão em [EVOLUCAO.md](EVOLUCAO.md), e os resultados reais da última execução estão em [VALIDACAO.md](VALIDACAO.md).
