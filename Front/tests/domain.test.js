@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterPosts, initialPosts, setVote, toPost, relativeTime } from '../src/data.js';
+import { filterPosts, mergePosts, initialPosts, setVote, toPost, relativeTime } from '../src/data.js';
 test('combina busca sem acentos, categoria e status', () => {
   assert.equal(filterPosts(initialPosts, { query: 'video', category: 'Placa de vídeo', status: 'open' }).length, 0);
   assert.equal(filterPosts(initialPosts, { query: 'atualizacao', category: 'Armazenamento', status: 'resolved' })[0].id, 'p2');
@@ -51,4 +51,12 @@ test('converte a publicação da API para o formato da interface', () => {
   assert.equal(post.votes, 5); assert.equal(post.image, ''); assert.equal(post.saved, true); assert.equal(post.myVote, -1);
   assert.deepEqual([post.replies[0].author, post.replies[0].votes, post.replies[0].accepted, post.replies[0].myVote], ['Rui', 2, true, 1]);
   assert.equal(post.replies[0].authorId, 5);
+});
+test('mergePosts combina resultados sem duplicar IDs e atualiza existentes', () => {
+  const base = [{ id: 1, title: 'Antigo' }, { id: 2, title: 'Segundo' }];
+  const incoming = [{ id: 2, title: 'Segundo atualizado' }, { id: 3, title: 'Resultado TF-IDF' }];
+  const merged = mergePosts(base, incoming);
+  assert.deepEqual(merged.map(p => p.id), [1, 2, 3]);
+  assert.equal(merged[1].title, 'Segundo atualizado');
+  assert.equal(merged[2].title, 'Resultado TF-IDF');
 });

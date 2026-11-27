@@ -1,4 +1,4 @@
-import { categories, filterPosts, setVote, toPost, toReply, relativeTime } from './data.js';
+import { categories, filterPosts, mergePosts, setVote, toPost, toReply, relativeTime } from './data.js';
 import { registrationView, bindRegistration } from './registration.js';
 import { api, ApiError, loadSession, saveSession, updateSessionUser, clearSession, hasSession, setSessionExpiredHandler } from './api.js';
 
@@ -35,10 +35,18 @@ const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" f
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const rich = value => escape(value).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\n/g, '<br>');
 try { localStorage.removeItem('circuito-v1'); } catch { /* dados locais antigos da versão demonstrativa */ }
+const FEED_PAGE_SIZE = 20;
+const PROFILE_LEVELS = ['Estou começando', 'Entusiasta de hardware', 'Trabalho com tecnologia'];
+const PROFILE_INTERESTS = ['Placas de vídeo', 'Processadores', 'Memória RAM', 'Armazenamento', 'Redes', 'Periféricos'];
 const session = loadSession();
 // Os dados da comunidade vêm da API; no navegador ficam só o token e o perfil da sessão.
-const state = { posts: [], articles: [], members: [], stats: null, notifications: [], searchIds: new Set(), user: session?.user || null, loading: true, loadError: '', page: 'feed', category: categories[0][0], status: 'all', query: '', sort: 'recent', unread: false };
-let searchTimer; let searchSeq = 0; const viewed = new Set();
+const state = {
+  posts: [], totalPosts: 0, articles: [], members: [], stats: null, notifications: [],
+  searchIds: new Set(), searchHits: [], searchRank: new Map(), profilePosts: new Map(),
+  user: session?.user || null, loading: true, loadingFeed: false, loadingMore: false, loadError: '',
+  page: 'feed', category: categories[0][0], status: 'all', query: '', sort: 'recent', unread: false
+};
+let searchTimer; let searchSeq = 0; let feedSeq = 0; const viewed = new Set();
 const pages = new Set(['feed', 'mine', 'saved', 'members', 'articles', 'profile', 'register']);
 const initialPage = location.hash.slice(1);
 if (pages.has(initialPage)) state.page = initialPage;
@@ -52,9 +60,60 @@ function startSession(token, user) {
   if (!saveSession(token, user)) toast('Armazenamento indisponível. Você continuará conectado apenas nesta sessão.');
 }
 function failure(error, fallback = 'Algo deu errado. Tente novamente.') { return error instanceof ApiError ? error.message : fallback; }
+function currentFeedParams(offset = 0) {
+  const params = { status: state.status, sort: state.sort, limit: FEED_PAGE_SIZE, offset };
+  if (state.category !== categories[0][0]) params.category = state.category;
+  if (state.page === 'mine') {
+    if (!state.user) return null;
+    params.authorId = state.user.id;
+  } else if (state.page === 'saved') {
+    if (!state.user) return null;
+    params.saved = 'me';
+  }
+  return params;
+}
+async function loadFeed({ append = false, silent = false } = {}) {
+  const params = currentFeedParams(append ? state.posts.length : 0);
+  const seq = ++feedSeq;
+  if (!params) {
+    state.posts = []; state.totalPosts = 0; state.loadingFeed = false; state.loadingMore = false;
+    if (!silent) render();
+    return;
+  }
+  if (append) state.loadingMore = true;
+  else if (!silent) state.loadingFeed = true;
+  if (!silent) {
+    const list = document.querySelector('#posts');
+    if (list && !append) list.innerHTML = postsContent();
+    else if (append) render();
+  }
+  try {
+    const { items, total } = await api.postsPage(params);
+    if (seq !== feedSeq) return;
+    const mapped = items.map(toPost);
+    state.posts = append ? mergePosts(state.posts, mapped) : mapped;
+    state.totalPosts = total;
+  } catch (error) {
+    if (seq !== feedSeq) return;
+    if (silent) throw error;
+    toast(failure(error, 'Não foi possível carregar as publicações.'));
+  } finally {
+    if (seq === feedSeq) {
+      state.loadingFeed = false;
+      state.loadingMore = false;
+      if (!silent) {
+        const list = document.querySelector('#posts');
+        if (list) list.innerHTML = postsContent();
+        else render();
+      }
+    }
+  }
+}
 async function refreshPosts() {
-  const [posts, articles, members, stats] = await Promise.all([api.posts({ limit: 100 }), api.articles(), api.members(), api.stats()]);
-  state.posts = posts.map(toPost); state.articles = articles; state.members = members; state.stats = stats;
+  const [, articles, members, stats] = await Promise.all([
+    loadFeed({ silent: true }), api.articles(), api.members(), api.stats()
+  ]);
+  state.articles = articles; state.members = members; state.stats = stats;
 }
 async function refreshNotifications() {
   if (!hasSession()) { state.notifications = []; state.unread = false; return; }
@@ -134,28 +193,52 @@ function mainContent() {
   if (state.page === 'profile') return profileContent(state.user?.name || 'Visitante');
   return `<div class="composer"><span>${avatar(state.user?.name || 'Você')}</span><button data-action="new">Qual é o desafio do seu hardware hoje?</button><button class="icon-button" data-action="new" aria-label="Criar publicação com imagem">${icon('image')}</button></div><div class="feed-toolbar"><div class="feed-tabs" role="group" aria-label="Status das publicações">${[['all', 'Todas'], ['open', 'Em aberto'], ['resolved', 'Resolvidas'], ['unanswered', 'Sem resposta']].map(([key, label]) => `<button class="${state.status === key ? 'active' : ''}" data-status="${key}" aria-pressed="${state.status === key}">${label}</button>`).join('')}</div><label class="sort-control"><span class="sr-only">Ordenar publicações</span><select id="sort"><option value="recent" ${state.sort === 'recent' ? 'selected' : ''}>Mais recentes</option><option value="popular" ${state.sort === 'popular' ? 'selected' : ''}>Mais votadas</option></select></label></div><div class="filter-row"><label class="search-field">${icon('search')}<input id="search" type="search" placeholder="Buscar dúvidas, peças ou soluções..." aria-label="Buscar publicações" value="${escape(state.query)}"></label><label class="category-select"><span class="sr-only">Filtrar por categoria</span><select id="category">${categories.map(([name]) => `<option ${state.category === name ? 'selected' : ''}>${name}</option>`).join('')}</select></label></div><div id="posts" aria-live="polite">${postsContent()}</div>`;
 }
-function postsContent() { const posts = filterPosts(state.posts, { ...state, user: state.user?.name, userId: state.user?.id, extraIds: state.searchIds }); return `<div class="results-heading"><span>${state.category === categories[0][0] ? 'Conversas que conectam' : escape(state.category)}</span><span>${posts.length} ${posts.length === 1 ? 'publicação' : 'publicações'}</span></div>${posts.length ? posts.map(postCard).join('') : `<div class="empty-state">${icon('search')}<h2>${state.page === 'saved' ? 'Seu próximo aprendizado fica aqui' : 'Nenhuma publicação por aqui'}</h2><p>${state.page === 'saved' ? 'Toque no marcador de uma publicação para guardá-la.' : 'Experimente outros filtros ou comece uma nova conversa.'}</p><button class="button secondary" data-action="${state.page === 'saved' ? 'feed' : 'clear'}">${state.page === 'saved' ? 'Explorar a comunidade' : 'Limpar filtros'}</button></div>`}`; }
+function postsContent() {
+  if ((state.page === 'mine' || state.page === 'saved') && !state.user) {
+    const isSaved = state.page === 'saved';
+    return `<div class="empty-state">${icon(isSaved ? 'bookmark' : 'chat')}<h2>${isSaved ? 'Entre para ver seus itens salvos' : 'Entre para ver suas publicações'}</h2><p>${isSaved ? 'Salve perguntas e soluções úteis no seu perfil para consultar quando precisar.' : 'Conecte seu perfil com seu e-mail para acompanhar suas conversas na comunidade.'}</p><button class="button primary" data-auth="login">Entrar na comunidade</button></div>`;
+  }
+  if (state.loadingFeed) return `<div class="empty-state" role="status">${icon('cpu')}<h2>Buscando publicações...</h2><p>Consultando o banco de dados da comunidade.</p></div>`;
+  const trimmed = state.query.trim();
+  const hasTfidf = trimmed.length >= 3 && state.searchHits.length > 0;
+  const pool = hasTfidf ? mergePosts(state.posts, state.searchHits) : state.posts;
+  const posts = filterPosts(pool, { ...state, user: state.user?.name, userId: state.user?.id, extraIds: state.searchIds });
+  if (hasTfidf) {
+    posts.sort((a, b) => (state.searchRank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (state.searchRank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  }
+  const countLabel = !trimmed && state.totalPosts > posts.length
+    ? `Exibindo ${posts.length.toLocaleString('pt-BR')} de ${state.totalPosts.toLocaleString('pt-BR')} publicações`
+    : `${posts.length} ${posts.length === 1 ? 'publicação' : 'publicações'}${hasTfidf ? ' · busca TF-IDF' : ''}`;
+  const remaining = Math.max(0, state.totalPosts - state.posts.length);
+  const loadMore = !trimmed && remaining > 0
+    ? `<div class="load-more-wrap"><button class="button secondary" data-action="load-more" ${state.loadingMore ? 'disabled' : ''}>${state.loadingMore ? 'Carregando...' : `Carregar mais (${remaining.toLocaleString('pt-BR')} restantes)`}</button></div>`
+    : '';
+  return `<div class="results-heading"><span>${state.category === categories[0][0] ? 'Conversas que conectam' : escape(state.category)}</span><span>${countLabel}</span></div>${posts.length ? posts.map(postCard).join('') + loadMore : `<div class="empty-state">${icon('search')}<h2>${state.page === 'saved' ? 'Seu próximo aprendizado fica aqui' : 'Nenhuma publicação por aqui'}</h2><p>${state.page === 'saved' ? 'Toque no marcador de uma publicação para guardá-la.' : 'Experimente outros filtros ou comece uma nova conversa.'}</p><button class="button secondary" data-action="${state.page === 'saved' ? 'feed' : 'clear'}">${state.page === 'saved' ? 'Explorar a comunidade' : 'Limpar filtros'}</button></div>`}`;
+}
 function rightRail() { return `<aside class="right-rail" aria-label="Destaques da comunidade"><section class="rail-card community-card"><div class="rail-heading"><h2>${icon('users')} Nosso circuito</h2><span class="live-pill"><i></i> Online</span></div><p>Gente que compartilha. Hardware que evolui.</p><div class="community-stats"><div><strong>${(state.stats?.posts ?? state.posts.length).toLocaleString('pt-BR')}</strong><span>publicações</span></div><div><strong>${(state.stats?.resolved ?? state.posts.filter(p => p.status === 'resolved').length).toLocaleString('pt-BR')}</strong><span>resolvidas</span></div><div><strong>${state.stats?.members ?? state.members.length}</strong><span>membros</span></div></div><div class="community-note"><span class="online-dot"></span> Explore as conversas da comunidade</div></section><section class="rail-card"><div class="rail-heading"><h2>${icon('bolt')} Em alta por aqui</h2></div><div class="trending">${[['01', 'Montando meu primeiro PC', 'Processadores'], ['02', 'De olho nas temperaturas', 'Placa de vídeo'], ['03', 'Mais velocidade, menos espera', 'Armazenamento']].map(([n, title, category]) => `<button data-category="${category}"><span>${n}</span><div><strong>${title}</strong><small>${category}</small></div>${icon('arrow')}</button>`).join('')}</div></section><section class="rail-card"><div class="rail-heading"><h2>${icon('trophy')} Quem faz a diferença</h2><span class="tiny-label">DESTAQUES</span></div>${state.members.slice(0, 3).map((m, i) => `<button class="leader-row" data-author="${escape(m.name)}"><span class="rank">${i + 1}</span>${avatar(m.name, m.color)}<span><strong>${escape(m.name)}</strong><small>${m.stats.reputation.toLocaleString('pt-BR')} pontos</small></span>${i === 0 ? '<span class="gold">' + icon('trophy') + '</span>' : ''}</button>`).join('')}<button class="rail-link" data-page="members">Conheça a comunidade ${icon('arrow')}</button></section><section class="tip-card"><div class="tip-art">${icon('fan')}<span>DICA DO CIRCUITO</span></div><div class="tip-content"><h2>Seu setup está<br>respirando bem?</h2><p>Pequenos ajustes no airflow fazem uma grande diferença.</p><button data-article="0">Confira o guia ${icon('arrow')}</button></div></section><div class="rail-bottom">Um espaço para aprender e ajudar.<br><span>Respeito é parte do nosso circuito.</span></div></aside>`; }
 function bindFeed() {
   document.querySelector('#search')?.addEventListener('input', e => {
-    state.query = e.target.value; state.searchIds = new Set();
+    state.query = e.target.value; state.searchIds = new Set(); state.searchHits = []; state.searchRank = new Map();
     document.querySelector('#posts').innerHTML = postsContent();
     clearTimeout(searchTimer);
     const query = state.query.trim();
     if (query.length < 3) return;
-    // Complementa o filtro local com o ranking TF-IDF da API (inclui o texto da solução aceita).
+    // Complementa o filtro local com o ranking TF-IDF da API (inclui publicações antigas e o texto da solução aceita).
     const seq = ++searchSeq;
     searchTimer = setTimeout(async () => {
       try {
-        const hits = await api.search(query);
+        const hits = await api.search(query, 20);
         if (seq !== searchSeq || state.query.trim() !== query) return;
-        state.searchIds = new Set(hits.map(hit => hit.post.id));
+        const mapped = hits.map(hit => toPost(hit.post));
+        state.searchHits = mapped;
+        state.searchIds = new Set(mapped.map(post => post.id));
+        state.searchRank = new Map(mapped.map((post, index) => [post.id, index]));
         const list = document.querySelector('#posts'); if (list) list.innerHTML = postsContent();
       } catch { /* a busca local continua funcionando */ }
     }, 300);
   });
-  document.querySelector('#sort')?.addEventListener('change', e => { state.sort = e.target.value; document.querySelector('#posts').innerHTML = postsContent(); });
-  document.querySelector('#category')?.addEventListener('change', e => { state.category = e.target.value; render(); });
+  document.querySelector('#sort')?.addEventListener('change', e => { state.sort = e.target.value; loadFeed(); });
+  document.querySelector('#category')?.addEventListener('change', e => { state.category = e.target.value; render(); loadFeed(); });
 }
 function showModal(content) { returnFocus = document.activeElement; modal.innerHTML = `<button class="modal-close icon-button" data-action="close" aria-label="Fechar janela">${icon('close')}</button>${content}`; if (!modal.open) modal.showModal(); }
 modal.addEventListener('close', () => { if (returnFocus?.isConnected) returnFocus.focus(); });
@@ -182,7 +265,8 @@ function auth(mode = 'login') {
 function requireUser() { if (state.user) return true; auth(); return false; }
 function newPost() {
   if (!requireUser()) return;
-  showModal(`<div class="modal-eyebrow">CONHECIMENTO COMEÇA COM UMA PERGUNTA</div><h2 id="modal-title">O que está acontecendo?</h2><p class="muted">Conte os detalhes. A comunidade ajuda a conectar as peças.</p><form class="form-stack" id="post-form"><label>Título da publicação<input name="title" placeholder="Ex.: Meu computador liga, mas não dá vídeo" required minlength="10" maxlength="160"></label><label>Categoria<select name="category">${categories.slice(1).map(([name]) => `<option>${name}</option>`).join('')}</select></label><label for="post-description">Descreva seu problema ou compartilhe uma solução<span class="editor-toolbar"><button type="button" data-format="bold" aria-label="Inserir texto em negrito"><strong>B</strong></button><button type="button" data-format="code" aria-label="Inserir código">&lt;/&gt;</button><span>**negrito** e &#96;código&#96;</span></span><textarea id="post-description" aria-label="Descreva seu problema ou compartilhe uma solução" name="description" rows="6" placeholder="Inclua seu setup, o que aconteceu e o que você já tentou..." required minlength="20" maxlength="10000"></textarea></label><label>Tags <span class="muted">(separadas por vírgula, até 4)</span><input name="tags" placeholder="Ex.: BIOS, RTX 4060, Windows" maxlength="120"></label><label class="upload-label">${icon('image')} Adicionar foto do hardware <small>PNG, JPG, WebP ou GIF · até 2 MB</small><input type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"></label><div id="image-preview"></div><p id="form-error" class="form-error" role="alert"></p><div class="form-footer"><span>Visível para toda a comunidade</span><button type="submit" class="button primary">Publicar ${icon('arrow')}</button></div></form>`);
+  const selectedCategory = state.category !== categories[0][0] ? state.category : categories[1][0];
+  showModal(`<div class="modal-eyebrow">CONHECIMENTO COMEÇA COM UMA PERGUNTA</div><h2 id="modal-title">O que está acontecendo?</h2><p class="muted">Conte os detalhes. A comunidade ajuda a conectar as peças.</p><form class="form-stack" id="post-form"><label>Título da publicação<input name="title" placeholder="Ex.: Meu computador liga, mas não dá vídeo" required minlength="10" maxlength="160"></label><label>Categoria<select name="category">${categories.slice(1).map(([name]) => `<option ${selectedCategory === name ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label for="post-description">Descreva seu problema ou compartilhe uma solução<span class="editor-toolbar"><button type="button" data-format="bold" aria-label="Inserir texto em negrito"><strong>B</strong></button><button type="button" data-format="code" aria-label="Inserir código">&lt;/&gt;</button><span>**negrito** e &#96;código&#96;</span></span><textarea id="post-description" aria-label="Descreva seu problema ou compartilhe uma solução" name="description" rows="6" placeholder="Inclua seu setup, o que aconteceu e o que você já tentou..." required minlength="20" maxlength="10000"></textarea></label><label>Tags <span class="muted">(separadas por vírgula, até 4)</span><input name="tags" placeholder="Ex.: BIOS, RTX 4060, Windows" maxlength="120"></label><label class="upload-label">${icon('image')} Adicionar foto do hardware <small>PNG, JPG, WebP ou GIF · até 2 MB</small><input type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"></label><div id="image-preview"></div><p id="form-error" class="form-error" role="alert"></p><div class="form-footer"><span>Visível para toda a comunidade</span><button type="submit" class="button primary">Publicar ${icon('arrow')}</button></div></form>`);
   let attachment = ''; let reading = false;
   document.querySelector('[name=image]').onchange = async e => {
     const file = e.target.files[0]; attachment = ''; document.querySelector('#image-preview').innerHTML = ''; document.querySelector('#form-error').textContent = '';
@@ -192,12 +276,27 @@ function newPost() {
     try { attachment = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); if (modal.open && document.querySelector('#image-preview')) document.querySelector('#image-preview').innerHTML = `<img src="${safeImage(attachment)}" alt="Prévia do anexo"><button type="button" id="remove-image">Remover imagem</button>`; document.querySelector('#remove-image')?.addEventListener('click', () => { attachment = ''; document.querySelector('[name=image]').value = ''; document.querySelector('#image-preview').innerHTML = ''; }); }
     catch { document.querySelector('#form-error').textContent = 'Não foi possível ler a imagem. Tente outro arquivo.'; } finally { reading = false; }
   };
-  document.querySelector('#post-form').onsubmit = async e => { e.preventDefault(); if (reading) { document.querySelector('#form-error').textContent = 'Aguarde a imagem terminar de carregar.'; return; } const data = new FormData(e.target); if (data.get('title').trim().length < 10 || data.get('description').trim().length < 20) { document.querySelector('#form-error').textContent = 'Escreva pelo menos 10 caracteres no título e 20 na descrição.'; return; } const submitButton = e.target.querySelector('button[type=submit]'); submitButton.disabled = true; try { const created = await api.createPost({ title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category'), tags: data.get('tags').split(',').map(t => t.trim()).filter(Boolean).slice(0, 4), image: attachment || null }); state.posts.unshift(toPost(created)); refreshMembers(); } catch (error) { document.querySelector('#form-error').textContent = failure(error, 'Não foi possível publicar.'); submitButton.disabled = false; return; } state.page = 'feed'; state.category = categories[0][0]; state.status = 'all'; state.query = ''; state.searchIds = new Set(); modal.close(); render(); toast('Publicação criada. Vamos conectar soluções!'); };
+  document.querySelector('#post-form').onsubmit = async e => { e.preventDefault(); if (reading) { document.querySelector('#form-error').textContent = 'Aguarde a imagem terminar de carregar.'; return; } const data = new FormData(e.target); if (data.get('title').trim().length < 10 || data.get('description').trim().length < 20) { document.querySelector('#form-error').textContent = 'Escreva pelo menos 10 caracteres no título e 20 na descrição.'; return; } const submitButton = e.target.querySelector('button[type=submit]'); submitButton.disabled = true; try { const created = await api.createPost({ title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category'), tags: data.get('tags').split(',').map(t => t.trim()).filter(Boolean).slice(0, 4), image: attachment || null }); const mapped = toPost(created); state.profilePosts.delete(mapped.author); state.page = 'feed'; state.category = categories[0][0]; state.status = 'all'; state.query = ''; state.searchIds = new Set(); state.searchHits = []; state.searchRank = new Map(); modal.close(); render(); await Promise.all([loadFeed(), refreshMembers()]); } catch (error) { document.querySelector('#form-error').textContent = failure(error, 'Não foi possível publicar.'); submitButton.disabled = false; return; } toast('Publicação criada. Vamos conectar soluções!'); };
 }
-const byId = id => state.posts.find(p => String(p.id) === String(id));
-function detail(id) {
-  const p = byId(id); if (!p) return;
-  if (!viewed.has(p.id)) { viewed.add(p.id); api.post(p.id).then(fresh => { p.views = fresh.views; }).catch(() => viewed.delete(p.id)); }
+const byId = id => state.posts.find(p => String(p.id) === String(id)) || state.searchHits.find(p => String(p.id) === String(id));
+async function detail(id) {
+  let p = byId(id);
+  if (!p) {
+    showModal(`<div class="modal-eyebrow">CIRCUITO</div><h2 id="modal-title">Carregando conversa...</h2><p class="muted" role="status">Buscando detalhes da publicação.</p>`);
+    try {
+      p = toPost(await api.post(id));
+      state.posts = mergePosts(state.posts, [p]);
+      viewed.add(p.id);
+    } catch (error) {
+      modal.close();
+      toast(failure(error, 'Não foi possível abrir esta publicação.'));
+      return;
+    }
+    if (!modal.open) return;
+  } else if (!viewed.has(p.id)) {
+    viewed.add(p.id);
+    api.post(p.id).then(fresh => { p.views = fresh.views; }).catch(() => viewed.delete(p.id));
+  }
   showModal(`<div class="modal-eyebrow">${escape(p.category)} · ${p.status === 'resolved' ? 'RESOLVIDO' : 'EM ABERTO'}</div><h2 id="modal-title">${escape(p.title)}</h2><div class="detail-author">${avatar(p.author, p.color)}<span><strong>${escape(p.author)}</strong><small>${escape(p.time)}</small></span></div><div class="detail-body">${rich(p.description)}</div>${p.image ? `<img class="detail-image" src="${safeImage(p.image)}" alt="Hardware anexado à publicação">` : ''}<div class="answers-heading"><h3>${p.replies.length} ${p.replies.length === 1 ? 'resposta' : 'respostas'}</h3><span>Ajude com respeito e clareza.</span></div>${p.replies.map(r => `<article class="answer ${r.accepted ? 'accepted' : ''}"><div class="answer-author">${avatar(r.author)}<strong>${escape(r.author)}</strong>${r.accepted ? '<span class="accepted-label">' + icon('check') + ' Solução aceita</span>' : ''}</div><p>${rich(r.body)}</p><div class="answer-actions"><button data-reply-vote="${r.id}" data-post-id="${p.id}" data-direction="1" aria-label="Votar positivamente na resposta" aria-pressed="${r.myVote === 1}" class="${r.myVote === 1 ? 'voted' : ''}">${icon('up')} ${r.votes}</button><button data-reply-vote="${r.id}" data-post-id="${p.id}" data-direction="-1" aria-label="Votar negativamente na resposta" aria-pressed="${r.myVote === -1}">${icon('down')}</button>${state.user && state.user.id === p.authorId ? `<button data-accept="${r.id}" data-post-id="${p.id}">${icon('check')}${r.accepted ? 'Desmarcar solução' : 'Aceitar solução'}</button>` : ''}</div></article>`).join('') || '<p class="muted">Esta conversa está esperando a primeira contribuição. Que tal ajudar?</p>'}<form id="reply-form" class="form-stack"><label for="reply-body">Sua contribuição<textarea id="reply-body" name="body" rows="3" placeholder="Compartilhe uma ideia ou os próximos passos do diagnóstico..." required minlength="10" maxlength="5000"></textarea></label><button class="button primary" type="submit">${icon('chat')} Enviar resposta</button></form>`);
   document.querySelector('#reply-form').onsubmit = async e => {
     e.preventDefault(); if (!requireUser()) return;
@@ -208,10 +307,54 @@ function detail(id) {
   };
 }
 function profileContent(name) {
-  const own = state.posts.filter(p => p.author === name); const replies = state.posts.flatMap(p => p.replies).filter(r => r.author === name); const localAccepted = replies.filter(r => r.accepted).length;
-  const member = state.members.find(m => m.name === name); const counts = member?.stats || { posts: own.length, replies: replies.length, accepted: localAccepted };
+  const member = state.members.find(m => m.name === name);
+  const memberPosts = state.profilePosts.get(name) || state.posts.filter(p => p.author === name);
+  const replies = state.posts.flatMap(p => p.replies).filter(r => r.author === name);
+  const localAccepted = replies.filter(r => r.accepted).length;
+  const isMe = state.user?.name === name;
+  const counts = (isMe ? state.user?.stats : null) || member?.stats || { posts: memberPosts.length, replies: replies.length, accepted: localAccepted };
   const accepted = counts.accepted;
-  return `<section class="profile-card">${avatar(name, member?.color || 'mint', true)}<h2>${escape(name)}</h2><p>${escape(state.user?.name === name && state.user.level ? state.user.level : 'Membro da comunidade Circuito')}</p>${state.user?.name === name && state.user.interests?.length ? `<div class="profile-interests">${state.user.interests.map(interest => `<span>${escape(interest)}</span>`).join('')}</div>` : ''}<div class="profile-stats"><div><strong>${counts.posts}</strong>publicações</div><div><strong>${counts.replies}</strong>respostas</div><div><strong>${accepted}</strong>soluções aceitas</div></div><div class="profile-badges"><span>${icon('users')} Conectado à comunidade</span>${counts.replies ? `<span>${icon('bolt')} Conhecimento compartilhado</span>` : ''}${accepted ? `<span>${icon('trophy')} Resolveu o circuito</span>` : ''}</div>${state.user?.name === name ? '<button class="button secondary" data-action="logout">Sair do perfil</button>' : ''}</section><h3 class="history-title">Últimas contribuições</h3>${own.map(postCard).join('') || '<div class="empty-state"><p>As publicações deste membro aparecerão aqui.</p></div>'}${replies.length ? `<h3 class="history-title">Respostas compartilhadas</h3>${state.posts.filter(p => p.replies.some(r => r.author === name)).map(p => `<button class="history-answer" data-post="${p.id}"><strong>${escape(p.title)}</strong><p>${escape(p.replies.find(r => r.author === name).body)}</p><span class="text-link">Ver conversa ${icon('arrow')}</span></button>`).join('')}` : ''}`;
+  const levelText = isMe && state.user.level ? state.user.level : (member?.level || 'Membro da comunidade Circuito');
+  const interests = isMe ? state.user.interests : member?.interests;
+  return `<section class="profile-card">${avatar(name, (isMe ? state.user?.color : member?.color) || 'mint', true)}<h2>${escape(name)}</h2><p>${escape(levelText)}</p>${interests?.length ? `<div class="profile-interests">${interests.map(interest => `<span>${escape(interest)}</span>`).join('')}</div>` : ''}<div class="profile-stats"><div><strong>${counts.posts}</strong>publicações</div><div><strong>${counts.replies}</strong>respostas</div><div><strong>${accepted}</strong>soluções aceitas</div></div><div class="profile-badges"><span>${icon('users')} Conectado à comunidade</span>${counts.replies ? `<span>${icon('bolt')} Conhecimento compartilhado</span>` : ''}${accepted ? `<span>${icon('trophy')} Resolveu o circuito</span>` : ''}</div>${isMe ? '<div class="profile-actions"><button class="button secondary" data-action="edit-profile">Editar perfil</button><button class="button secondary" data-action="logout">Sair do perfil</button></div>' : ''}</section><h3 class="history-title">Últimas contribuições</h3>${memberPosts.map(postCard).join('') || '<div class="empty-state"><p>As publicações deste membro aparecerão aqui.</p></div>'}${replies.length ? `<h3 class="history-title">Respostas compartilhadas</h3>${state.posts.filter(p => p.replies.some(r => r.author === name)).map(p => `<button class="history-answer" data-post="${p.id}"><strong>${escape(p.title)}</strong><p>${escape(p.replies.find(r => r.author === name).body)}</p><span class="text-link">Ver conversa ${icon('arrow')}</span></button>`).join('')}` : ''}`;
+}
+async function ensureAuthorPosts(name, { inModal = false } = {}) {
+  if (!name || state.profilePosts.has(name)) return;
+  const memberId = state.user?.name === name ? state.user.id : state.members.find(m => m.name === name)?.id;
+  if (!memberId) return;
+  try {
+    const items = await api.posts({ authorId: memberId, limit: 20 });
+    state.profilePosts.set(name, items.map(toPost));
+    if (inModal && modal.open) showModal(`<h2 id="modal-title">Perfil da comunidade</h2>${profileContent(name)}`);
+    else if (!inModal && state.page === 'profile' && state.user?.name === name) render();
+  } catch { /* mantém as publicações já em memória */ }
+}
+function editProfileModal() {
+  if (!requireUser()) return;
+  const currentInterests = new Set(state.user.interests || []);
+  showModal(`<div class="modal-eyebrow">ATUALIZE SEU PERFIL</div><h2 id="modal-title">Editar perfil</h2><p class="muted">Ajuste seu nome, nível de experiência e áreas de interesse.</p><form id="edit-profile-form" class="form-stack"><label>Nome ou apelido<input name="name" required minlength="2" maxlength="70" value="${escape(state.user.name)}"></label><label>Experiência com hardware<select name="level"><option value="">Todo mundo começa de algum lugar</option>${PROFILE_LEVELS.map(level => `<option value="${escape(level)}" ${state.user.level === level ? 'selected' : ''}>${escape(level)}</option>`).join('')}</select></label><fieldset class="profile-edit-interests"><legend>Áreas de interesse</legend><div class="profile-edit-grid">${PROFILE_INTERESTS.map(item => `<label class="profile-edit-chip"><input type="checkbox" name="interests" value="${escape(item)}" ${currentInterests.has(item) ? 'checked' : ''}><span>${escape(item)}</span></label>`).join('')}</div></fieldset><p id="edit-profile-error" class="form-error" role="alert"></p><div class="form-footer"><span>Alterações visíveis no perfil da comunidade</span><button type="submit" class="button primary">Salvar alterações ${icon('arrow')}</button></div></form>`);
+  document.querySelector('#edit-profile-form').onsubmit = async e => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const name = String(form.get('name') || '').trim();
+    const level = String(form.get('level') || '').trim();
+    const interests = form.getAll('interests').map(String);
+    if (name.length < 2) { document.querySelector('#edit-profile-error').textContent = 'Informe um nome com pelo menos 2 caracteres.'; return; }
+    const submitBtn = e.target.querySelector('button[type=submit]'); submitBtn.disabled = true;
+    try {
+      const updated = await api.updateMe({ name, level: level || null, interests });
+      state.user = updated;
+      updateSessionUser(updated);
+      state.profilePosts.clear();
+      await Promise.all([refreshMembers(), loadFeed({ silent: true }).catch(() => {})]);
+      modal.close();
+      render();
+      toast('Perfil atualizado com sucesso!');
+    } catch (error) {
+      document.querySelector('#edit-profile-error').textContent = failure(error, 'Não foi possível atualizar o perfil.');
+      submitBtn.disabled = false;
+    }
+  };
 }
 const refreshMembers = () => Promise.all([api.members(), api.stats()]).then(([members, stats]) => { state.members = members; state.stats = stats; const rail = document.querySelector('.right-rail'); if (rail) rail.outerHTML = rightRail(); }).catch(() => {});
 async function toggleSave(p) {
@@ -234,17 +377,17 @@ async function acceptReply(p, replyId) {
 }
 document.addEventListener('click', e => {
   const button = e.target.closest('button, a.brand'); if (!button) return;
-  if (button.matches('a.brand')) { e.preventDefault(); state.page = 'feed'; render(); return; }
+  if (button.matches('a.brand')) { e.preventDefault(); state.page = 'feed'; render(); loadFeed(); return; }
   const d = button.dataset;
-  if (d.page) { state.page = d.page; state.query = ''; state.category = categories[0][0]; state.status = 'all'; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-  if (d.category) { state.category = d.category; state.page = 'feed'; render(); return; }
-  if (d.status) { state.status = d.status; render(); return; }
+  if (d.page) { state.page = d.page; state.query = ''; state.searchIds = new Set(); state.searchHits = []; state.searchRank = new Map(); state.category = categories[0][0]; state.status = 'all'; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); if (d.page === 'feed' || d.page === 'mine' || d.page === 'saved') loadFeed(); else if (d.page === 'profile' && state.user) ensureAuthorPosts(state.user.name); return; }
+  if (d.category) { state.category = d.category; state.page = 'feed'; render(); loadFeed(); return; }
+  if (d.status) { state.status = d.status; render(); loadFeed(); return; }
   if (d.post) { detail(d.post); return; }
   if (d.save) { if (!requireUser()) return; toggleSave(byId(d.save)); return; }
   if (d.vote) { if (!requireUser()) return; castVote(byId(d.vote), { postId: Number(d.vote) }, Number(d.direction)); return; }
   if (d.replyVote) { if (!requireUser()) return; const p = byId(d.postId); castVote(p.replies.find(r => String(r.id) === d.replyVote), { replyId: Number(d.replyVote) }, Number(d.direction), p.id); return; }
   if (d.accept) { const p = byId(d.postId); if (!state.user || state.user.id !== p.authorId) return; acceptReply(p, Number(d.accept)); return; }
-  if (d.author) { showModal(`<h2 id="modal-title">Perfil da comunidade</h2>${profileContent(d.author)}`); return; }
+  if (d.author) { showModal(`<h2 id="modal-title">Perfil da comunidade</h2>${profileContent(d.author)}`); ensureAuthorPosts(d.author, { inModal: true }); return; }
   if (d.article !== undefined) { const a = state.articles[Number(d.article)]; if (!a) return; showModal(`<div class="modal-eyebrow">${escape(a.label)}</div><h2 id="modal-title">${escape(a.title)}</h2><div class="article-hero">${icon(a.icon)}</div><p class="detail-body">${escape(a.body)}</p><p class="muted">Guia introdutório da comunidade Circuito. Consulte sempre a documentação dos seus componentes.</p>`); return; }
   if (d.auth) { auth(d.auth); return; }
   if (d.format) { const textarea = document.querySelector('[name=description]'); const marker = d.format === 'bold' ? '**' : '`'; const start = textarea.selectionStart; const end = textarea.selectionEnd; textarea.setRangeText(marker + (textarea.value.slice(start, end) || 'seu texto') + marker, start, end, 'select'); textarea.focus(); return; }
@@ -252,11 +395,13 @@ document.addEventListener('click', e => {
     case 'new': newPost(); break;
     case 'close': modal.close(); break;
     case 'menu': { const open = document.querySelector('#sidebar').classList.toggle('mobile-open'); button.setAttribute('aria-expanded', String(open)); break; }
-    case 'profile': if (!requireUser()) return; state.page = 'profile'; render(); break;
-    case 'logout': (async () => { try { await api.logout(); } catch { /* a sessão local é removida de qualquer forma */ } clearSession(); state.user = null; state.page = 'feed'; modal.close(); await refreshPosts().catch(() => {}); await refreshNotifications(); render(); toast('Você saiu do perfil.'); })(); break;
+    case 'profile': if (!requireUser()) return; state.page = 'profile'; render(); ensureAuthorPosts(state.user.name); break;
+    case 'edit-profile': editProfileModal(); break;
+    case 'load-more': loadFeed({ append: true }); break;
+    case 'logout': (async () => { try { await api.logout(); } catch { /* a sessão local é removida de qualquer forma */ } clearSession(); state.user = null; state.profilePosts.clear(); state.page = 'feed'; modal.close(); await refreshPosts().catch(() => {}); await refreshNotifications(); render(); toast('Você saiu do perfil.'); })(); break;
     case 'retry': bootstrap(); break;
-    case 'clear': state.query = ''; state.status = 'all'; state.category = categories[0][0]; render(); break;
-    case 'feed': state.page = 'feed'; render(); break;
+    case 'clear': state.query = ''; state.searchIds = new Set(); state.searchHits = []; state.searchRank = new Map(); state.status = 'all'; state.category = categories[0][0]; render(); loadFeed(); break;
+    case 'feed': state.page = 'feed'; render(); loadFeed(); break;
     case 'notifications': openNotifications(); break;
     case 'about': showModal('<div class="modal-eyebrow">CONECTE. RESOLVA. EVOLUA.</div><h2 id="modal-title">Hardware se aprende em comunidade.</h2><p class="detail-body">O Circuito é um espaço para tirar dúvidas, compartilhar diagnósticos e encontrar soluções com outras pessoas. Seja gentil, explique seus testes e valorize quem ajuda.</p><p class="muted">As publicações, respostas, votos e itens salvos ficam guardados na API da comunidade. O acesso usa apenas nome e e-mail, sem senha: não há autenticação forte nem envio de e-mails, e as notificações aparecem ao abrir o sino ou recarregar.</p>'); break;
   }

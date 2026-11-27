@@ -28,7 +28,7 @@ export function clearSession() {
 export const hasSession = () => Boolean(token);
 export function setSessionExpiredHandler(handler) { onSessionExpired = handler; }
 
-async function request(path, { method = 'GET', body } = {}) {
+async function request(path, { method = 'GET', body, withMeta = false } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -44,6 +44,13 @@ async function request(path, { method = 'GET', body } = {}) {
     if (response.status === 401 && token) { clearSession(); onSessionExpired(); }
     throw new ApiError(data?.error || 'O servidor não conseguiu concluir a solicitação.', response.status);
   }
+  if (withMeta) {
+    const rawTotal = response.headers.get('X-Total-Count');
+    const total = rawTotal !== null && Number.isFinite(Number(rawTotal))
+      ? Number(rawTotal)
+      : (Array.isArray(data) ? data.length : 0);
+    return { items: data, total };
+  }
   return data;
 }
 
@@ -51,6 +58,7 @@ export const api = {
   health: () => request('/health'),
   stats: () => request('/stats'),
   posts: (params = {}) => request(`/posts?${new URLSearchParams(params)}`),
+  postsPage: (params = {}) => request(`/posts?${new URLSearchParams(params)}`, { withMeta: true }),
   post: id => request(`/posts/${id}`),
   search: (q, limit = 20) => request(`/posts/search?${new URLSearchParams({ q, limit })}`),
   createPost: body => request('/posts', { method: 'POST', body }),
@@ -64,6 +72,7 @@ export const api = {
   login: email => request('/members/login', { method: 'POST', body: { email } }),
   logout: () => request('/members/logout', { method: 'POST' }),
   me: () => request('/members/me'),
+  updateMe: body => request('/members/me', { method: 'PATCH', body }),
   notifications: () => request('/notifications'),
   markNotificationsRead: () => request('/notifications/read', { method: 'PATCH' })
 };
