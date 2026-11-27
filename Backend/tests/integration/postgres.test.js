@@ -35,7 +35,7 @@ test("PostgreSQL real em schema exclusivo", { timeout: 240000 }, async (t) => {
   const request = async (route, method = "GET", data, token) => {
     const headers = { "Content-Type": "application/json", ...(token && { Authorization: `Bearer ${token}` }) };
     const r = await fetch(base + route, { method, headers, body: data === undefined ? undefined : JSON.stringify(data) });
-    return { status: r.status, body: r.status === 204 ? null : await r.json() };
+    return { status: r.status, headers: r.headers, body: r.status === 204 ? null : await r.json() };
   };
   const signUp = async (name) => {
     const r = await request("/members", "POST", { name, email: `${name.toLowerCase().replaceAll(" ", ".")}@teste.example`, interests: ["Redes"] });
@@ -53,7 +53,11 @@ test("PostgreSQL real em schema exclusivo", { timeout: 240000 }, async (t) => {
     assert.equal(await prisma.category.count(), 7);
     assert.equal(await prisma.article.count(), 3);
     assert.ok(await prisma.postTerm.count() > 1000);
-    assert.equal((await request("/posts?limit=3")).body.length, 3);
+    const page1 = await request("/posts?limit=3&offset=0");
+    assert.equal(page1.body.length, 3);
+    assert.equal(page1.headers.get("x-total-count"), "1005");
+    const byCategory = await request("/posts?category=Redes&limit=5");
+    assert.ok(byCategory.body.length > 0 && byCategory.body.every((p) => p.category.name === "Redes"));
     assert.equal((await request("/articles")).body.length, 3);
     assert.deepEqual((await request("/stats")).body, { posts: 1005, resolved: 500 + 2, members: 5 });
     assert.equal((await request("/categories")).body[0].name, "Placa de vídeo");

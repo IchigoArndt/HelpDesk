@@ -34,7 +34,10 @@ async function proxy(req, res, url) {
   const response = await fetch(`${API_URL}/${endpoint}${url.search}`, {
     method: req.method, headers, body: body?.length ? body : undefined, signal: AbortSignal.timeout(10000)
   });
-  res.writeHead(response.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  const responseHeaders = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+  const totalCount = response.headers.get('x-total-count');
+  if (totalCount !== null) responseHeaders['X-Total-Count'] = totalCount;
+  res.writeHead(response.status, responseHeaders);
   res.end(response.status === 204 ? undefined : await response.text());
 }
 

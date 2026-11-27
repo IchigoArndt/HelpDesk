@@ -14,7 +14,7 @@ function offsetOf(value) {
   return offset;
 }
 
-async function listPosts(query = {}, viewer) {
+function parseListParams(query = {}, viewer) {
   const sort = query.sort === undefined ? "recent" : query.sort;
   if (!SORTS.includes(sort)) fail(`sort inválido. Use: ${SORTS.join(", ")}`);
   let savedBy;
@@ -23,15 +23,27 @@ async function listPosts(query = {}, viewer) {
     if (!viewer) throw { status: 401, message: "Entre na comunidade para ver os itens salvos." };
     savedBy = viewer.id;
   }
-  return repo.findAll({
+  const categoryName = query.category !== undefined && query.category !== "" && query.category !== "Todas as categorias"
+    ? requiredText(query.category, "category")
+    : undefined;
+  return {
     status: postFilter(query.status),
     categoryId: query.categoryId === undefined ? undefined : positiveId(query.categoryId, "categoryId"),
+    categoryName,
     authorId: query.authorId === undefined ? undefined : positiveId(query.authorId, "authorId"),
     savedBy, sort,
     limit: pageSize(query.limit, 100, 100),
     offset: offsetOf(query.offset),
     viewerId: viewer?.id,
-  });
+  };
+}
+
+async function listPosts(query = {}, viewer) {
+  return repo.findAll(parseListParams(query, viewer));
+}
+
+async function listPostsWithTotal(query = {}, viewer) {
+  return repo.findAllWithTotal(parseListParams(query, viewer));
 }
 
 async function createPost(data = {}, member) {
@@ -92,4 +104,4 @@ async function searchPosts(q, limit, viewer) {
 
 const communityStats = () => repo.communityStats();
 
-module.exports = { listPosts, createPost, getPost, reply, accept, vote, setBookmark, searchPosts, communityStats };
+module.exports = { listPosts, listPostsWithTotal, createPost, getPost, reply, accept, vote, setBookmark, searchPosts, communityStats };

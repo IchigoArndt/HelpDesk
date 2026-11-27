@@ -2,7 +2,11 @@
 
 const uc = require("../../application/use-cases/postUseCases");
 
-const list = async (req, res) => res.json(await uc.listPosts(req.query, req.member));
+const list = async (req, res) => {
+  const { items, total } = await uc.listPostsWithTotal(req.query, req.member);
+  res.setHeader("X-Total-Count", String(total));
+  res.json(items);
+};
 const create = async (req, res) => res.status(201).json(await uc.createPost(req.body, req.member));
 const get = async (req, res) => res.json(await uc.getPost(req.params.id, req.member));
 const search = async (req, res) => res.json(await uc.searchPosts(req.query.q, req.query.limit, req.member));

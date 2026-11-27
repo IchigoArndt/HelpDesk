@@ -82,6 +82,8 @@ export default async function handler(req, res) {
     });
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Cache-Control', 'no-store');
+    const totalCount = response.headers.get('x-total-count');
+    if (totalCount !== null) res.setHeader('X-Total-Count', totalCount);
     if (response.status === 204) {
       res.status(204).end();
       return;
