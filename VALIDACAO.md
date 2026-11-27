@@ -79,4 +79,27 @@ Não foram testados navegadores diferentes, telas pequenas nem carga concorrente
 
 ## Limites da entrega
 
-A trilha demonstrada é A (Prisma), com busca TF-IDF adicional. O acesso é por nome e e-mail, sem senha: não há autenticação forte, envio de e-mails, tempo real, Elasticsearch ou RAG. O feed carrega as 100 publicações mais recentes. A auditoria contém apenas os prompts observados nesta conversa. A dupla deve complementar o histórico anterior de uso da IA com seus registros reais.
+A trilha demonstrada é A (Prisma), com busca TF-IDF adicional. O acesso é por nome e e-mail, sem senha: não há autenticação forte, envio de e-mails, tempo real, Elasticsearch ou RAG. A auditoria contém apenas os prompts observados nesta conversa. A dupla deve complementar o histórico anterior de uso da IA com seus registros reais.
+
+---
+
+# Validação da Fase 2 — 27/11/2026
+
+Verificações executadas localmente após as melhorias descritas em [EVOLUCAO.md](EVOLUCAO.md) (Node.js 24.14.0 no host):
+
+## O que foi executado e aprovado neste ambiente
+
+- `Backend`: `npm test` — **4/4 testes unitários aprovados** (tokenização/pesos TF-IDF, validação de entradas, consistência do protótipo e geração determinística de 5.000 registros).
+- `Backend`: `node --check` em todos os arquivos modificados (`postRepository.js`, `memberRepository.js`, `postUseCases.js`, `postController.js`, `cors.js`, `tests/integration/postgres.test.js`) — **sem erros de sintaxe**.
+- `Front`: `npm run check` — verificação de sintaxe dos 5 módulos JS e **8/8 testes unitários aprovados** (incluindo o novo teste de `mergePosts` para resultados de paginação e busca TF-IDF).
+
+## O que ficou pendente de execução com PostgreSQL ativo
+
+Nesta estação de trabalho o usuário local não possui acesso ao socket `/var/run/docker.sock` (e não há instância PostgreSQL instalada no host), portanto **não foram executados nesta rodada**:
+
+- `docker compose up --build -d --wait --wait-timeout 240` (aplicação da nova migração `20261127000000_query_performance_indexes`)
+- `npm run prisma:validate` (depende das dependências instaladas no container ou `npm ci` local)
+- `TEST_DATABASE_URL=... npm run test:integration` (incluindo as novas asserções de `X-Total-Count` e filtro `?category=Redes`)
+- `npm run demo` (nova medição local de tempos da busca TF-IDF agregada diretamente no PostgreSQL)
+
+Esses comandos devem ser executados no ambiente com Docker/PostgreSQL ativo antes do merge final para a `main`.

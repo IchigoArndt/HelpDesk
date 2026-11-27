@@ -67,6 +67,7 @@ async function updateProfile(id, data) {
 }
 
 async function statsFor(memberIds) {
+  if (Array.isArray(memberIds) && memberIds.length === 0) return new Map();
   const where = memberIds ? { in: memberIds } : undefined;
   const [posts, replies, accepted] = await Promise.all([
     prisma.post.groupBy({ by: ["authorId"], where: where && { authorId: where }, _count: { _all: true }, _sum: { score: true } }),
@@ -91,7 +92,7 @@ async function findAll() {
     where: { NOT: { email: { endsWith: `@${config.fillerEmailDomain}` } } },
     select: PUBLIC, orderBy: { id: "asc" },
   });
-  const stats = await statsFor();
+  const stats = await statsFor(members.map((member) => member.id));
   return members
     .map((member) => ({ ...member, stats: { ...emptyStats, ...stats.get(member.id) } }))
     .sort((a, b) => b.stats.reputation - a.stats.reputation || a.id - b.id);

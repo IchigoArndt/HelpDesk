@@ -52,21 +52,35 @@ async function findView(tx, id, viewerId) {
   return post && postView(post);
 }
 
-async function findAll({ status, categoryId, authorId, savedBy, sort, limit, offset, viewerId } = {}) {
+function buildWhere({ status, categoryId, categoryName, authorId, savedBy } = {}) {
   const where = {};
   if (status === "open") where.status = "OPEN";
   if (status === "resolved") where.status = "RESOLVED";
   if (status === "unanswered") where.replies = { none: {} };
   if (categoryId) where.categoryId = categoryId;
+  else if (categoryName) where.category = { name: categoryName };
   if (authorId) where.authorId = authorId;
   if (savedBy) where.bookmarks = { some: { memberId: savedBy } };
+  return where;
+}
+
+async function findAllWithTotal({ status, categoryId, categoryName, authorId, savedBy, sort, limit, offset, viewerId } = {}) {
+  const where = buildWhere({ status, categoryId, categoryName, authorId, savedBy });
   const orderBy = sort === "popular"
     ? [{ score: "desc" }, { createdAt: "desc" }, { id: "desc" }]
     : [{ createdAt: "desc" }, { id: "desc" }];
-  const posts = await prisma.post.findMany({
-    where, orderBy, take: limit, skip: offset, include: includeFor(viewerId),
-  });
-  return posts.map(postView);
+  const [posts, total] = await Promise.all([
+    prisma.post.findMany({
+      where, orderBy, take: limit, skip: offset, include: includeFor(viewerId),
+    }),
+    prisma.post.count({ where }),
+  ]);
+  return { items: posts.map(postView), total };
+}
+
+async function findAll(filters = {}) {
+  const { items } = await findAllWithTotal(filters);
+  return items;
 }
 
 async function create({ authorId, categoryId, categoryName, title, description, image, tags }) {
@@ -167,47 +181,51 @@ async function setBookmark({ memberId, postId, saved }) {
 }
 
 /**
- * Busca por TF-IDF no índice invertido.
- *  1. Tokeniza a consulta; 2. lê os postings dos tokens;
- *  3. IDF suavizado ln((N+1)/(df+1)) + 1; 4. nota = Σ(tf × idf);
- *  5. ordena por nota, data e ID.
+ * Busca por TF-IDF diretamente no PostgreSQL usando o índice invertido.
+ *  1. Tokeniza e deduplica a consulta;
+ *  2. Calcula IDF suavizado ln((N+1)/(df+1)) + 1 e soma (tf × idf) no banco;
+ *  3. Ordena por nota, data e ID com LIMIT no SQL;
+ *  4. Carrega apenas as publicações vencedoras com suas relações.
  */
 async function search(query, limit = 10, viewerId) {
-  const tokens = tokenize(query);
-  if (tokens.length === 0) return [];
+  const uniqueTokens = [...new Set(tokenize(query))];
+  if (uniqueTokens.length === 0) return [];
   const total = await prisma.post.count();
   if (total === 0) return [];
 
-  const postings = await prisma.postTerm.findMany({
-    where: { term: { token: { in: tokens } } },
-    select: { postId: true, tf: true, term: { select: { token: true } } },
-  });
-  if (postings.length === 0) return [];
+  const ranked = await prisma.$queryRaw`
+    WITH matched_terms AS (
+      SELECT
+        t.id AS "termId",
+        (LN((CAST(${total} AS DOUBLE PRECISION) + 1.0) / (CAST(COUNT(pt."postId") AS DOUBLE PRECISION) + 1.0)) + 1.0) AS idf
+      FROM "Term" t
+      INNER JOIN "PostTerm" pt ON pt."termId" = t.id
+      WHERE t.token = ANY(${uniqueTokens})
+      GROUP BY t.id
+    )
+    SELECT
+      pt."postId" AS id,
+      SUM(pt.tf * mt.idf) AS score
+    FROM "PostTerm" pt
+    INNER JOIN matched_terms mt ON mt."termId" = pt."termId"
+    INNER JOIN "Post" p ON p.id = pt."postId"
+    GROUP BY pt."postId", p."createdAt"
+    ORDER BY score DESC, p."createdAt" DESC, pt."postId" ASC
+    LIMIT ${limit}
+  `;
+  if (ranked.length === 0) return [];
 
-  const documentFrequency = new Map();
-  for (const p of postings) documentFrequency.set(p.term.token, (documentFrequency.get(p.term.token) || 0) + 1);
-
-  const scores = new Map();
-  for (const p of postings) {
-    const idf = Math.log((total + 1) / (documentFrequency.get(p.term.token) + 1)) + 1;
-    scores.set(p.postId, (scores.get(p.postId) || 0) + p.tf * idf);
-  }
-
-  const dates = await prisma.post.findMany({
-    where: { id: { in: [...scores.keys()] } }, select: { id: true, createdAt: true },
-  });
-  const timestamps = new Map(dates.map((post) => [post.id, post.createdAt.getTime()]));
-  const ranked = [...scores]
-    .filter(([id]) => timestamps.has(id))
-    .sort((a, b) => b[1] - a[1] || timestamps.get(b[0]) - timestamps.get(a[0]) || a[0] - b[0])
-    .slice(0, limit);
   const posts = await prisma.post.findMany({
-    where: { id: { in: ranked.map(([id]) => id) } }, include: includeFor(viewerId),
+    where: { id: { in: ranked.map((row) => row.id) } },
+    include: includeFor(viewerId),
   });
   const byId = new Map(posts.map((post) => [post.id, post]));
-  return ranked.filter(([id]) => byId.has(id)).map(([id, score]) => ({
-    score: Math.round(score * 1000) / 1000, post: postView(byId.get(id)),
-  }));
+  return ranked
+    .filter((row) => byId.has(row.id))
+    .map((row) => ({
+      score: Math.round(Number(row.score) * 1000) / 1000,
+      post: postView(byId.get(row.id)),
+    }));
 }
 
 async function communityStats() {
@@ -219,4 +237,4 @@ async function communityStats() {
   return { posts, resolved, members };
 }
 
-module.exports = { findAll, create, findById, addReply, toggleAccepted, vote, setBookmark, search, communityStats };
+module.exports = { findAll, findAllWithTotal, create, findById, addReply, toggleAccepted, vote, setBookmark, search, communityStats };

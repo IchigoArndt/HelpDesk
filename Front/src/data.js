@@ -47,3 +47,17 @@ export function setVote(item, direction) {
   item.myVote = previous === direction ? 0 : direction;
   item.votes += item.myVote - previous;
 }
+// Mescla publicações vindas de paginação ou busca TF-IDF sem duplicar IDs.
+export function mergePosts(existing, incoming) {
+  const byId = new Map();
+  const order = [];
+  for (const post of existing) {
+    byId.set(post.id, post);
+    order.push(post.id);
+  }
+  for (const post of incoming) {
+    if (!byId.has(post.id)) order.push(post.id);
+    byId.set(post.id, post);
+  }
+  return order.map(id => byId.get(id));
+}
