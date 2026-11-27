@@ -91,6 +91,9 @@ model Post {
   notifications Notification[]
 
   @@index([categoryId, status, createdAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([score(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
   @@index([authorId])
   @@index([score])
 }
